@@ -1,5 +1,4 @@
 import cv2
-from datetime import datetime
 
 from src.camera import Camera
 from src.face_detection import FaceDetector
@@ -14,16 +13,12 @@ def main():
     cam = Camera()
     detector = FaceDetector()
 
-    # Create a unique session ID (per class run)
-    session_id = datetime.now().strftime("CLASS_%Y-%m-%d_%H-%M")
+    present_students = set()
 
     print("Loading registered face embeddings...")
     embeddings_db = load_registered_embeddings()
     print("Embeddings loaded successfully.")
-
-    print("Starting Automated Attendance System")
-    print(f"Session ID: {session_id}")
-    print("Press 'q' to quit")
+    print("Press 'q' to end session")
 
     while True:
         frame = cam.get_frame()
@@ -38,7 +33,7 @@ def main():
             name, confidence = recognize_face(face_img, embeddings_db)
 
             if name != "Unknown":
-                write_attendance(name, session_id)
+                present_students.add(name)
 
             label = name
             if confidence is not None:
@@ -61,6 +56,10 @@ def main():
             break
 
     cam.release()
+
+    print("Writing attendance...")
+    write_attendance(present_students)
+    print("Attendance saved successfully.")
 
 
 if __name__ == "__main__":
