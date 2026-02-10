@@ -7,7 +7,7 @@ from src.face_recognition import (
     load_registered_embeddings,
     recognize_face
 )
-from src.attendance import mark_attendance
+from src.attendance import write_attendance
 
 
 def main():
@@ -38,7 +38,7 @@ def main():
             name, confidence = recognize_face(face_img, embeddings_db)
 
             if name != "Unknown":
-                mark_attendance(name, session_id)
+                write_attendance(name, session_id)
 
             label = name
             if confidence is not None:
