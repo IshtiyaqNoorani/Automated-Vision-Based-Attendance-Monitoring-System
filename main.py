@@ -10,23 +10,88 @@ from src.face_recognition import (
 from src.attendance import write_attendance
 
 
-def main():
-    cam = Camera()
-    detector = FaceDetector()
+# ================================
+# CONFIGURATION
+# ================================
 
-    # ---- Accuracy-first parameters ----
-    REQUIRED_DETECTIONS = 8       # multiple confirmations
-    MIN_CONFIDENCE = 80           # strong match only
-    FACE_SIZE = (160, 160)        # FaceNet input size
+ATTENDANCE_MODE = "snapshot"   # "snapshot" or "live"
 
-    # Track detections
+MIN_CONFIDENCE = 80            # percent
+REQUIRED_DETECTIONS = 8        # for live mode
+FACE_SIZE = (160, 160)         # FaceNet input size
+MIN_FACE_SIZE = 60             # ignore very small distant faces
+
+
+# ================================
+# SNAPSHOT MODE (Accuracy-first)
+# ================================
+
+def snapshot_attendance(cam, detector, embeddings_db):
+    """
+    Capture a single high-quality frame and perform attendance.
+    Best suited for distant classroom cameras.
+    """
+    print("Snapshot mode selected.")
+    print("Stabilizing camera...")
+
+    # Warm-up frames for auto-focus / exposure
+    for _ in range(10):
+        cam.get_frame()
+
+    frame = cam.get_frame()
+    if frame is None:
+        print("Failed to capture snapshot.")
+        return set()
+
     present_students = set()
-    detection_count = defaultdict(int)
 
-    print("Loading registered face embeddings...")
-    embeddings_db = load_registered_embeddings()
-    print("Embeddings loaded successfully.")
-    print("System running. Press 'q' to end session.")
+    faces = detector.detect_faces(frame)
+
+    for (x, y, w, h) in faces:
+        face_img = frame[y:y+h, x:x+w]
+
+        if face_img.shape[0] < MIN_FACE_SIZE or face_img.shape[1] < MIN_FACE_SIZE:
+            continue
+
+        face_img = cv2.resize(face_img, FACE_SIZE)
+
+        name, confidence = recognize_face(face_img, embeddings_db)
+
+        if (
+            name != "Unknown"
+            and confidence is not None
+            and confidence >= MIN_CONFIDENCE
+        ):
+            present_students.add(name)
+
+        label = name if confidence is None else f"{name} ({confidence}%)"
+        cv2.putText(
+            frame, label, (x, y - 10),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
+        )
+
+    frame = detector.draw_faces(frame, faces)
+    cv2.imshow("Snapshot Attendance", frame)
+    cv2.waitKey(2000)
+    cv2.destroyAllWindows()
+
+    return present_students
+
+
+# ================================
+# LIVE MODE (Demonstration mode)
+# ================================
+
+def live_attendance(cam, detector, embeddings_db):
+    """
+    Continuous live attendance with multi-frame confirmation.
+    Shows real-time capability but less stable than snapshot mode.
+    """
+    print("Live mode selected.")
+    print("Press 'q' to end session.")
+
+    detection_count = defaultdict(int)
+    present_students = set()
 
     while True:
         frame = cam.get_frame()
@@ -36,19 +101,15 @@ def main():
         faces = detector.detect_faces(frame)
 
         for (x, y, w, h) in faces:
-            # Crop face
             face_img = frame[y:y+h, x:x+w]
 
-            # Skip very small faces (too far / unreliable)
-            if face_img.shape[0] < 60 or face_img.shape[1] < 60:
+            if face_img.shape[0] < MIN_FACE_SIZE or face_img.shape[1] < MIN_FACE_SIZE:
                 continue
 
-            # Resize for FaceNet (important for distance)
             face_img = cv2.resize(face_img, FACE_SIZE)
 
             name, confidence = recognize_face(face_img, embeddings_db)
 
-            # Strong confirmation logic
             if (
                 name != "Unknown"
                 and confidence is not None
@@ -59,26 +120,42 @@ def main():
                 if detection_count[name] >= REQUIRED_DETECTIONS:
                     present_students.add(name)
 
-            # Display label
-            label = "Unknown"
-            if confidence is not None:
-                label = f"{name} ({confidence}%)"
-
+            label = name if confidence is None else f"{name} ({confidence}%)"
             cv2.putText(
-                frame,
-                label,
-                (x, y - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (0, 255, 0),
-                2
+                frame, label, (x, y - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2
             )
 
         frame = detector.draw_faces(frame, faces)
-        cv2.imshow("Automated Attendance System", frame)
+        cv2.imshow("Live Attendance", frame)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
+
+    cv2.destroyAllWindows()
+    return present_students
+
+
+# ================================
+# MAIN
+# ================================
+
+def main():
+    cam = Camera()
+    detector = FaceDetector()
+
+    print("Loading registered face embeddings...")
+    embeddings_db = load_registered_embeddings()
+    print("Embeddings loaded successfully.")
+
+    if ATTENDANCE_MODE == "snapshot":
+        present_students = snapshot_attendance(cam, detector, embeddings_db)
+
+    elif ATTENDANCE_MODE == "live":
+        present_students = live_attendance(cam, detector, embeddings_db)
+
+    else:
+        raise ValueError("Invalid ATTENDANCE_MODE")
 
     cam.release()
 
