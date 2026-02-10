@@ -1,4 +1,5 @@
 import cv2
+from collections import defaultdict
 
 from src.camera import Camera
 from src.face_detection import FaceDetector
@@ -13,12 +14,19 @@ def main():
     cam = Camera()
     detector = FaceDetector()
 
+    # ---- Accuracy-first parameters ----
+    REQUIRED_DETECTIONS = 8       # multiple confirmations
+    MIN_CONFIDENCE = 80           # strong match only
+    FACE_SIZE = (160, 160)        # FaceNet input size
+
+    # Track detections
     present_students = set()
+    detection_count = defaultdict(int)
 
     print("Loading registered face embeddings...")
     embeddings_db = load_registered_embeddings()
     print("Embeddings loaded successfully.")
-    print("Press 'q' to end session")
+    print("System running. Press 'q' to end session.")
 
     while True:
         frame = cam.get_frame()
@@ -28,14 +36,31 @@ def main():
         faces = detector.detect_faces(frame)
 
         for (x, y, w, h) in faces:
+            # Crop face
             face_img = frame[y:y+h, x:x+w]
+
+            # Skip very small faces (too far / unreliable)
+            if face_img.shape[0] < 60 or face_img.shape[1] < 60:
+                continue
+
+            # Resize for FaceNet (important for distance)
+            face_img = cv2.resize(face_img, FACE_SIZE)
 
             name, confidence = recognize_face(face_img, embeddings_db)
 
-            if name != "Unknown":
-                present_students.add(name)
+            # Strong confirmation logic
+            if (
+                name != "Unknown"
+                and confidence is not None
+                and confidence >= MIN_CONFIDENCE
+            ):
+                detection_count[name] += 1
 
-            label = name
+                if detection_count[name] >= REQUIRED_DETECTIONS:
+                    present_students.add(name)
+
+            # Display label
+            label = "Unknown"
             if confidence is not None:
                 label = f"{name} ({confidence}%)"
 
@@ -44,7 +69,7 @@ def main():
                 label,
                 (x, y - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
+                0.7,
                 (0, 255, 0),
                 2
             )
