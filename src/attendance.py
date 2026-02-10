@@ -1,55 +1,29 @@
-import csv
 import os
 from datetime import datetime
 
 FILE_NAME = "attendance.csv"
 
 
-# Create CSV file if it does not exist
-def create_file_if_not_exists():
-    if not os.path.exists(FILE_NAME):
-        with open(FILE_NAME, mode="w", newline="") as file:
-            writer = csv.writer(file)
-            writer.writerow(["StudentName", "Date", "Time", "SessionID"])
+def get_all_students(registered_faces_dir="data/registered_faces"):
+    students = []
+    for name in os.listdir(registered_faces_dir):
+        path = os.path.join(registered_faces_dir, name)
+        if os.path.isdir(path):
+            students.append(name)
+    return students
 
 
-# Check if attendance already exists for the session
-def already_marked(student_name, session_id):
-    if not os.path.exists(FILE_NAME):
-        return False
+def write_attendance(present_students):
+    time_str = datetime.now().strftime("%H:%M:%S")
+    all_students = get_all_students()
 
-    with open(FILE_NAME, mode="r") as file:
-        reader = csv.DictReader(file)
+    with open(FILE_NAME, "w") as file:
+        # Header
+        file.write(f"{'Name':<20} {'Time':<10} {'Status'}\n")
+        file.write("-" * 40 + "\n")
 
-        for row in reader:
-            if (
-                row["StudentName"] == student_name
-                and row["SessionID"] == session_id
-            ):
-                return True
+        # Rows
+        for student in all_students:
+            status = "Present" if student in present_students else "Absent"
+            file.write(f"{student:<20} {time_str:<10} {status}\n")
 
-    return False
-
-
-# Mark attendance
-def mark_attendance(student_name, session_id):
-    create_file_if_not_exists()
-
-    now = datetime.now()
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H:%M:%S")
-
-    if already_marked(student_name, session_id):
-        print("Attendance already marked.")
-        return
-
-    with open(FILE_NAME, mode="a", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerow([student_name, date_str, time_str, session_id])
-
-    print("Attendance recorded.")
-
-
-# Test run when file is executed directly
-#if __name__ == "__main__":
- #   mark_attendance("Rahul", "CS101_2026-02-04")
