@@ -5,7 +5,10 @@ from datetime import datetime
 FILE_NAME = "attendance.csv"
 
 
-# Create CSV file if it does not exist
+# ================================
+# FILE HANDLING
+# ================================
+
 def create_file_if_not_exists():
     if not os.path.exists(FILE_NAME):
         with open(FILE_NAME, mode="w", newline="") as file:
@@ -13,7 +16,19 @@ def create_file_if_not_exists():
             writer.writerow(["StudentName", "Date", "Time", "SessionID"])
 
 
-# Check if attendance already exists for the session
+# ================================
+# SESSION ID
+# ================================
+
+def generate_session_id():
+    now = datetime.now()
+    return now.strftime("SESSION_%Y%m%d_%H%M")
+
+
+# ================================
+# CHECK DUPLICATES
+# ================================
+
 def already_marked(student_name, session_id):
     if not os.path.exists(FILE_NAME):
         return False
@@ -31,7 +46,10 @@ def already_marked(student_name, session_id):
     return False
 
 
-# Mark attendance
+# ================================
+# MARK ATTENDANCE
+# ================================
+
 def mark_attendance(student_name, session_id):
     create_file_if_not_exists()
 
@@ -40,16 +58,21 @@ def mark_attendance(student_name, session_id):
     time_str = now.strftime("%H:%M:%S")
 
     if already_marked(student_name, session_id):
-        print("Attendance already marked.")
         return
 
     with open(FILE_NAME, mode="a", newline="") as file:
         writer = csv.writer(file)
         writer.writerow([student_name, date_str, time_str, session_id])
 
-    print("Attendance recorded.")
+    print(f"Attendance recorded for {student_name}")
 
 
-# Test run when file is executed directly
-#if __name__ == "__main__":
- #   mark_attendance("Rahul", "CS101_2026-02-04")
+# ================================
+# WRITE FULL CLASS ATTENDANCE
+# ================================
+
+def write_attendance(student_set):
+    session_id = generate_session_id()
+
+    for student in student_set:
+        mark_attendance(student, session_id)
