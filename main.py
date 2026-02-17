@@ -58,7 +58,6 @@ class FaceDetector:
 
         detections = DeepFace.extract_faces(
             img_path=frame,
-            target_size=(224, 224),
             detector_backend=DETECTOR,
             enforce_detection=False,
             align=True
