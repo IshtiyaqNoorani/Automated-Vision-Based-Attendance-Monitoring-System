@@ -69,7 +69,7 @@ def cosine_distance(vec1, vec2):
     return 1 - np.dot(vec1, vec2) / denom
 
 
-def recognize_face(face_img, embeddings_db, threshold=0.25):
+def recognize_face(face_img, embeddings_db, threshold=0.20):
     """
     Matches a given face image against known embeddings.
 
