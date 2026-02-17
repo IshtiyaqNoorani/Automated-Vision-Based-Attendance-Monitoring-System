@@ -166,16 +166,13 @@ def recognize_face(face_img):
 
 def snapshot_attendance(cam, detector):
 
-    print("Stabilizing camera...")
-
-    for _ in range(10):
-        cam.get_frame()
+    print("Snapshot mode")
+    print("Press 'c' to capture attendance")
+    print("Press 'q' to quit")
 
     present_students = set()
 
-    print("Capturing frames...")
-
-    for _ in range(6):
+    while True:
 
         frame = cam.get_frame()
 
@@ -184,22 +181,58 @@ def snapshot_attendance(cam, detector):
 
         faces = detector.detect_faces(frame)
 
-        for (x, y, w, h) in faces:
+        preview = frame.copy()
 
-            face_img = frame[y:y+h, x:x+w]
+        # Draw boxes only for preview
+        preview = detector.draw_faces(preview, faces)
 
-            face_img = cv2.resize(
-                face_img,
-                FACE_SIZE,
-                interpolation=cv2.INTER_CUBIC
-            )
+        cv2.imshow("Attendance Preview", preview)
 
-            name, confidence = recognize_face(face_img)
+        key = cv2.waitKey(1) & 0xFF
 
-            if name != "Unknown":
-                present_students.add(name)
+        # Quit
+        if key == ord("q"):
+            cv2.destroyAllWindows()
+            return set()
 
-    return present_students
+        # Capture snapshot
+        if key == ord("c"):
+
+            print("Processing captured frame...")
+
+            for (x, y, w, h) in faces:
+
+                face_img = frame[y:y+h, x:x+w]
+
+                face_img = cv2.resize(
+                    face_img,
+                    FACE_SIZE,
+                    interpolation=cv2.INTER_CUBIC
+                )
+
+                name, confidence = recognize_face(face_img)
+
+                if name != "Unknown":
+                    present_students.add(name)
+
+                label = name if confidence is None else f"{name} ({confidence}%)"
+
+                cv2.putText(
+                    frame,
+                    label,
+                    (x, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0,255,0),
+                    2
+                )
+
+            cv2.imshow("Captured Snapshot", frame)
+            cv2.waitKey(3000)
+
+            cv2.destroyAllWindows()
+
+            return present_students
 
 
 # =========================
