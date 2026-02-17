@@ -14,16 +14,15 @@ from src.attendance import write_attendance
 ATTENDANCE_MODE = "snapshot"   # "snapshot" or "live"
 
 MODEL_NAME = "ArcFace"
+
 DATASET_PATH = "data/registered_faces"
 
-# Distance threshold for ArcFace (CRITICAL)
-DISTANCE_THRESHOLD = 0.68
-
-# Face processing
 FACE_SIZE = (160, 160)
+
 MIN_FACE_SIZE = 80
 
-# Live mode settings
+SIMILARITY_THRESHOLD = 0.40   # ArcFace cosine similarity threshold
+
 REQUIRED_DETECTIONS = 4
 
 
@@ -37,7 +36,6 @@ class Camera:
 
         self.cap = cv2.VideoCapture(cam_id)
 
-        # Higher resolution improves distant recognition
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
@@ -48,7 +46,7 @@ class Camera:
         if not ret:
             return None
 
-        # Fix mirrored Mac webcam
+        # Fix mirrored webcam image
         frame = cv2.flip(frame, 1)
 
         return frame
@@ -139,8 +137,9 @@ def load_embeddings():
                     np.array(embedding)
                 )
 
-            except:
-                pass
+            except Exception as e:
+
+                print(f"Skipping {img_path}")
 
     print("Embeddings loaded successfully.")
 
@@ -168,36 +167,42 @@ def recognize_face(face_img):
         embedding = np.array(embedding)
 
         best_match = None
-        best_distance = 999
+
+        best_similarity = -1
 
         for person in embeddings_db:
 
             for stored_embedding in embeddings_db[person]:
 
-                distance = np.linalg.norm(
-                    embedding - stored_embedding
+                similarity = np.dot(
+                    embedding,
+                    stored_embedding
+                ) / (
+                    np.linalg.norm(embedding) *
+                    np.linalg.norm(stored_embedding)
                 )
 
-                if distance < best_distance:
+                if similarity > best_similarity:
 
-                    best_distance = distance
+                    best_similarity = similarity
+
                     best_match = person
 
-        if best_distance < DISTANCE_THRESHOLD:
+        if best_similarity > SIMILARITY_THRESHOLD:
 
-            confidence = (1 - best_distance) * 100
+            confidence = best_similarity * 100
 
             return best_match, round(confidence, 2)
 
         return "Unknown", None
 
-    except:
+    except Exception:
 
         return "Unknown", None
 
 
 # =========================
-# SNAPSHOT MODE (BEST ACCURACY)
+# SNAPSHOT MODE
 # =========================
 
 def snapshot_attendance(cam, detector):
@@ -226,6 +231,7 @@ def snapshot_attendance(cam, detector):
         if key == ord('q'):
 
             cv2.destroyAllWindows()
+
             return set()
 
         if key == ord('c'):
@@ -240,23 +246,30 @@ def snapshot_attendance(cam, detector):
 
                 name, confidence = recognize_face(face_img)
 
-                label = name if confidence is None else f"{name} ({confidence}%)"
+                if name != "Unknown":
+
+                    present_students.add(name)
+
+                    label = f"{name} ({confidence}%)"
+
+                else:
+
+                    label = "Unknown"
 
                 cv2.putText(
                     frame,
                     label,
                     (x, y-10),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
+                    0.8,
                     (0,255,0),
                     2
                 )
 
-                if name != "Unknown":
-                    present_students.add(name)
+            cv2.imshow("Captured Snapshot", frame)
 
-            cv2.imshow("Captured", frame)
             cv2.waitKey(3000)
+
             cv2.destroyAllWindows()
 
             return present_students
@@ -271,6 +284,7 @@ def live_attendance(cam, detector):
     print("Live mode started. Press 'q' to quit.")
 
     detection_count = defaultdict(int)
+
     present_students = set()
 
     while True:
@@ -329,6 +343,7 @@ def main():
     load_embeddings()
 
     cam = Camera()
+
     detector = FaceDetector()
 
     if ATTENDANCE_MODE == "snapshot":
@@ -353,5 +368,6 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
 
