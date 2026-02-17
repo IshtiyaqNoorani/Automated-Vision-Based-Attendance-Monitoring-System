@@ -14,7 +14,7 @@ from src.attendance import write_attendance
 ATTENDANCE_MODE = "snapshot"   # "snapshot" or "live"
 
 MODEL_NAME = "ArcFace"
-DATASET_PATH = "dataset"
+DATASET_PATH = "data/registered_faces"
 
 # Distance threshold for ArcFace (CRITICAL)
 DISTANCE_THRESHOLD = 0.68
