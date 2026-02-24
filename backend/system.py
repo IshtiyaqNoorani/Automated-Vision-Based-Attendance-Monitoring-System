@@ -161,37 +161,36 @@ def detect_faces(frame):
 # =========================
 
 def recognize_frame(frame):
-    """
-    Recognizes all faces in a frame.
-
-    Returns:
-        List of dictionaries:
-        [
-            {
-                "name": "2408912_Ishtiyaq",
-                "confidence": 72.5,
-                "box": (x, y, w, h)
-            }
-        ]
-    """
 
     global embeddings_db
 
-    faces = detect_faces(frame)
+    # Use RetinaFace detection
+    detections = DeepFace.extract_faces(
+        img_path=frame,
+        detector_backend="retinaface",
+        enforce_detection=False,
+        align=True
+    )
 
     results = []
 
-    for (x, y, w, h) in faces:
+    for detection in detections:
 
-        face_img = frame[y:y+h, x:x+w]
+        face_img = detection["face"]
+        region = detection["facial_area"]
+
+        x = region["x"]
+        y = region["y"]
+        w = region["w"]
+        h = region["h"]
+
+        # Reject tiny faces
+        if w < 80 or h < 80:
+            continue
 
         try:
 
-            face_img = cv2.resize(
-                face_img,
-                FACE_SIZE,
-                interpolation=cv2.INTER_CUBIC
-            )
+            face_img = cv2.resize(face_img, FACE_SIZE)
 
             embedding = DeepFace.represent(
                 img_path=face_img,
@@ -209,8 +208,7 @@ def recognize_frame(frame):
                 for stored in embeddings_db[person]:
 
                     similarity = np.dot(
-                        embedding,
-                        stored
+                        embedding, stored
                     ) / (
                         np.linalg.norm(embedding) *
                         np.linalg.norm(stored)
@@ -226,35 +224,28 @@ def recognize_frame(frame):
                 confidence = best_similarity * 100
 
                 results.append({
-
                     "name": best_match,
                     "confidence": round(confidence, 2),
                     "box": (x, y, w, h)
-
                 })
 
             else:
 
                 results.append({
-
                     "name": "Unknown",
                     "confidence": None,
                     "box": (x, y, w, h)
-
                 })
 
         except:
 
             results.append({
-
                 "name": "Unknown",
                 "confidence": None,
                 "box": (x, y, w, h)
-
             })
 
     return results
-
 
 # =========================
 # ATTENDANCE
