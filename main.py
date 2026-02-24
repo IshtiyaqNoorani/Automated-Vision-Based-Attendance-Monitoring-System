@@ -221,28 +221,26 @@ def snapshot_attendance(cam, detector):
         faces = detector.detect_faces(frame)
 
         preview = frame.copy()
-
         preview = detector.draw_faces(preview, faces)
 
-        cv2.imshow("Preview", preview)
+        cv2.imshow("Preview - Press 'c' to capture", preview)
 
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord('q'):
 
             cv2.destroyAllWindows()
-
             return set()
 
         if key == ord('c'):
 
-            print("Processing snapshot...")
+            captured = frame.copy()
 
             present_students = set()
 
             for (x, y, w, h) in faces:
 
-                face_img = frame[y:y+h, x:x+w]
+                face_img = captured[y:y+h, x:x+w]
 
                 name, confidence = recognize_face(face_img)
 
@@ -257,7 +255,7 @@ def snapshot_attendance(cam, detector):
                     label = "Unknown"
 
                 cv2.putText(
-                    frame,
+                    captured,
                     label,
                     (x, y-10),
                     cv2.FONT_HERSHEY_SIMPLEX,
@@ -266,14 +264,29 @@ def snapshot_attendance(cam, detector):
                     2
                 )
 
-            cv2.imshow("Captured Snapshot", frame)
+            # Show captured image and WAIT for user decision
+            while True:
 
-            cv2.waitKey(3000)
+                cv2.imshow(
+                    "Captured - Press 'y' to confirm, 'r' to retake, 'q' to quit",
+                    captured
+                )
 
-            cv2.destroyAllWindows()
+                decision = cv2.waitKey(0) & 0xFF
 
-            return present_students
+                if decision == ord('y'):
 
+                    cv2.destroyAllWindows()
+                    return present_students
+
+                elif decision == ord('r'):
+
+                    break  # go back to preview
+
+                elif decision == ord('q'):
+
+                    cv2.destroyAllWindows()
+                    return set()
 
 # =========================
 # LIVE MODE
