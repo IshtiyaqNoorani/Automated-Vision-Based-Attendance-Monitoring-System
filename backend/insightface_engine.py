@@ -2,205 +2,121 @@ import cv2
 import os
 import numpy as np
 from insightface.app import FaceAnalysis
+from sklearn.metrics.pairwise import cosine_similarity
 
-DATASET_PATH = "data/registered_faces"
+DATASET_DIR = "data/registered_faces"
 
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 720
-
-RECOGNITION_THRESHOLD = 0.42
-IOU_THRESHOLD = 0.4
-
-DETECTION_INTERVAL = 12
+SIMILARITY_THRESHOLD = 0.45
+MIN_FACE_SIZE = 80
 
 
-class TrackFace:
-    def __init__(self, tracker, name, embedding, box):
-        self.tracker = tracker
-        self.name = name
-        self.embedding = embedding
-        self.box = box
-
-
-def cosine_distance(a, b):
-    return 1 - np.dot(a, b)
-
-
-def compute_iou(boxA, boxB):
-
-    xA = max(boxA[0], boxB[0])
-    yA = max(boxA[1], boxB[1])
-    xB = min(boxA[2], boxB[2])
-    yB = min(boxA[3], boxB[3])
-
-    interArea = max(0, xB - xA) * max(0, yB - yA)
-
-    if interArea == 0:
-        return 0
-
-    boxAArea = (boxA[2]-boxA[0]) * (boxA[3]-boxA[1])
-    boxBArea = (boxB[2]-boxB[0]) * (boxB[3]-boxB[1])
-
-    return interArea / float(boxAArea + boxBArea - interArea)
-
-
-class EnterpriseFaceEngine:
+class InsightFaceEngine:
 
     def __init__(self):
 
-        print("Loading buffalo_l model...")
+        print("Loading InsightFace buffalo_l model...")
 
-        self.app = FaceAnalysis(name="buffalo_l",
-                                providers=["CPUExecutionProvider"])
-
+        self.app = FaceAnalysis(name="buffalo_l")
         self.app.prepare(ctx_id=0, det_size=(640,640))
 
-        self.database = {}
-        self.load_database()
+        print("Model loaded.")
 
-        self.trackers = []
-        self.frame_count = 0
+        self.embeddings = []
+        self.names = []
+
+        self.load_database()
 
 
     def load_database(self):
 
-        print("Loading database...")
+        print("Loading face database...")
 
-        for person in os.listdir(DATASET_PATH):
+        self.embeddings.clear()
+        self.names.clear()
 
-            path = os.path.join(DATASET_PATH, person)
+        for person in os.listdir(DATASET_DIR):
 
-            if not os.path.isdir(path):
+            person_path = os.path.join(DATASET_DIR, person)
+
+            if not os.path.isdir(person_path):
                 continue
 
-            embeddings = []
+            for img_name in os.listdir(person_path):
 
-            for file in os.listdir(path):
+                img_path = os.path.join(person_path, img_name)
 
-                if file.startswith("."):
+                img = cv2.imread(img_path)
+
+                if img is None:
                     continue
-
-                img = cv2.imread(os.path.join(path,file))
 
                 faces = self.app.get(img)
 
-                if len(faces)==0:
+                if len(faces) == 0:
                     continue
 
-                emb = faces[0].embedding
-                emb = emb / np.linalg.norm(emb)
+                embedding = faces[0].embedding
 
-                embeddings.append(emb)
+                self.embeddings.append(embedding)
+                self.names.append(person)
 
-            if embeddings:
-                self.database[person] = embeddings
-
-        print("Loaded:", list(self.database.keys()))
+        print("Database ready.")
 
 
-    def match(self, embedding):
-
-        best_name = "Unknown"
-        best_dist = 1.0
-
-        for person in self.database:
-
-            for emb in self.database[person]:
-
-                dist = cosine_distance(embedding, emb)
-
-                if dist < best_dist:
-                    best_dist = dist
-                    best_name = person
-
-        if best_dist > RECOGNITION_THRESHOLD:
-            return "Unknown"
-
-        return best_name
-
-
-    def is_duplicate_box(self, new_box):
-
-        for face in self.trackers:
-
-            if compute_iou(face.box, new_box) > IOU_THRESHOLD:
-                return True
-
-        return False
-
-
-    def update_trackers(self, frame):
-
-        active = []
-        results = []
-
-        for face in self.trackers:
-
-            ok, box = face.tracker.update(frame)
-
-            if ok:
-
-                x,y,w,h = map(int, box)
-
-                face.box = (x,y,x+w,y+h)
-
-                active.append(face)
-
-                results.append({
-                    "name": face.name,
-                    "box": face.box
-                })
-
-        self.trackers = active
-
-        return results
-
-
-    def detect_new_faces(self, frame):
+    def recognize(self, frame):
 
         faces = self.app.get(frame)
 
+        results = []
+
         for face in faces:
 
-            emb = face.embedding
-            emb = emb / np.linalg.norm(emb)
+            x1,y1,x2,y2 = face.bbox.astype(int)
 
-            box = tuple(face.bbox.astype(int))
-
-            if self.is_duplicate_box(box):
+            if (x2-x1) < MIN_FACE_SIZE:
                 continue
 
-            name = self.match(emb)
+            embedding = face.embedding
 
-            tracker = cv2.TrackerKCF_create()
-            tracker.init(frame,
-                         (box[0],box[1],box[2]-box[0],box[3]-box[1]))
+            name = "Unknown"
+            best_score = 0
 
-            self.trackers.append(
-                TrackFace(tracker, name, emb, box)
-            )
+            if len(self.embeddings) > 0:
 
+                scores = cosine_similarity(
+                    [embedding],
+                    self.embeddings
+                )[0]
 
-    def process(self, frame):
+                best_index = np.argmax(scores)
+                best_score = scores[best_index]
 
-        self.frame_count += 1
+                if best_score > SIMILARITY_THRESHOLD:
 
-        results = self.update_trackers(frame)
+                    name = self.names[best_index]
 
-        if self.frame_count % DETECTION_INTERVAL == 0:
-            self.detect_new_faces(frame)
+            results.append({
+
+                "name": name,
+                "confidence": float(best_score),
+                "box": (x1,y1,x2,y2)
+
+            })
 
         return results
 
 
-def run():
+engine = InsightFaceEngine()
 
-    engine = EnterpriseFaceEngine()
+
+def run_camera():
 
     cap = cv2.VideoCapture(0)
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT,720)
+
+    print("Camera started.")
 
     while True:
 
@@ -211,29 +127,39 @@ def run():
 
         frame = cv2.flip(frame,1)
 
-        results = engine.process(frame)
+        results = engine.recognize(frame)
 
         for r in results:
 
             x1,y1,x2,y2 = r["box"]
+            name = r["name"]
+            conf = r["confidence"]
 
-            color = (0,255,0) if r["name"]!="Unknown" else (0,0,255)
+            color = (0,255,0) if name!="Unknown" else (0,0,255)
 
             cv2.rectangle(frame,(x1,y1),(x2,y2),color,2)
 
-            cv2.putText(frame,r["name"],
-                        (x1,y1-10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,color,2)
+            label = f"{name} {conf:.2f}"
+
+            cv2.putText(
+                frame,
+                label,
+                (x1,y1-10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                color,
+                2
+            )
 
         cv2.imshow("Enterprise Attendance System", frame)
 
-        if cv2.waitKey(1)==ord('q'):
+        if cv2.waitKey(1)==ord("q"):
             break
 
     cap.release()
     cv2.destroyAllWindows()
 
 
-if __name__=="__main__":
-    run()
+if __name__ == "__main__":
+
+    run_camera()
