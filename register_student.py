@@ -1,68 +1,76 @@
 import cv2
 import os
-import time
 import numpy as np
 from insightface.app import FaceAnalysis
 
-DATASET_PATH = "data/registered_faces"
+DATASET_DIR = "data/registered_faces"
 NUM_IMAGES = 25
 
-BLUR_THRESHOLD = 80
-MIN_FACE_SIZE = 120
+print("Loading InsightFace buffalo_l for registration...")
 
-app = FaceAnalysis(name="buffalo_l",
-                   providers=["CPUExecutionProvider"])
-
+app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
 app.prepare(ctx_id=0, det_size=(640,640))
 
-student = input("Enter student name: ")
+print("Model ready.")
 
-path = os.path.join(DATASET_PATH, student)
-os.makedirs(path, exist_ok=True)
+name = input("Enter student roll and name (example: 2408912_Ishtiyaq): ")
+
+student_dir = os.path.join(DATASET_DIR, name)
+os.makedirs(student_dir, exist_ok=True)
 
 cap = cv2.VideoCapture(0)
 
 count = 0
 
-while count < NUM_IMAGES:
+print("Press SPACE to capture image")
+print("Press ESC to exit")
+
+while True:
 
     ret, frame = cap.read()
+
+    if not ret:
+        break
+
     frame = cv2.flip(frame,1)
 
     faces = app.get(frame)
 
-    if len(faces):
+    display = frame.copy()
 
-        face = faces[0]
+    for face in faces:
 
-        x1,y1,x2,y2 = face.bbox.astype(int)
+        x1,y1,x2,y2 = map(int, face.bbox)
 
-        face_img = frame[y1:y2,x1:x2]
+        cv2.rectangle(display,(x1,y1),(x2,y2),(0,255,0),2)
 
-        gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY)
+    cv2.imshow("Register Student", display)
 
-        blur = cv2.Laplacian(gray, cv2.CV_64F).var()
+    key = cv2.waitKey(1)
 
-        if blur < BLUR_THRESHOLD:
+    if key == 27:
+        break
+
+    if key == 32:
+
+        if len(faces)==0:
+            print("No face detected")
             continue
 
-        if face_img.shape[0] < MIN_FACE_SIZE:
-            continue
+        filename = f"{name}_{count}.jpg"
 
-        filename = f"{student}_{count}.jpg"
+        path = os.path.join(student_dir, filename)
 
-        cv2.imwrite(os.path.join(path, filename), frame)
+        cv2.imwrite(path, frame)
+
+        print("Saved:", path)
 
         count += 1
 
-        print("Saved", count)
-
-        time.sleep(0.4)
-
-    cv2.imshow("Register", frame)
-
-    if cv2.waitKey(1)==ord('q'):
-        break
+        if count >= NUM_IMAGES:
+            break
 
 cap.release()
 cv2.destroyAllWindows()
+
+print("Registration complete.")
