@@ -6,30 +6,31 @@ from insightface.app import FaceAnalysis
 DATASET_PATH = "data/registered_faces"
 RECOGNITION_THRESHOLD = 0.45
 
+DETECT_EVERY_N_FRAMES = 5
 
-class InsightFaceEngine:
+
+class FaceEngine:
 
     def __init__(self):
 
-        print("Initializing InsightFace...")
+        print("Loading InsightFace model...")
 
         self.app = FaceAnalysis(
             name="buffalo_l",
             providers=['CPUExecutionProvider']
         )
 
-        self.app.prepare(
-            ctx_id=0,
-            det_size=(640, 640)
-        )
+        self.app.prepare(ctx_id=0, det_size=(640,640))
 
         self.embeddings_db = {}
-
         self.load_database()
 
-        print("Engine ready.")
+        self.trackers = []
+        self.tracker_names = []
 
-    # =========================
+        self.frame_count = 0
+
+        print("Engine ready.")
 
     def load_database(self):
 
@@ -47,137 +48,129 @@ class InsightFaceEngine:
                 if file.startswith("."):
                     continue
 
-                img_path = os.path.join(person_path, file)
-
-                img = cv2.imread(img_path)
-
-                if img is None:
-                    continue
+                img = cv2.imread(os.path.join(person_path,file))
 
                 faces = self.app.get(img)
 
-                if len(faces) == 0:
-                    continue
+                if len(faces):
 
-                embedding = faces[0].embedding
+                    self.embeddings_db[person].append(
+                        faces[0].embedding
+                    )
 
-                self.embeddings_db[person].append(embedding)
+    def cosine_distance(self,a,b):
 
-        print("Database loaded.")
-
-    # =========================
-
-    def cosine_distance(self, a, b):
-
-        return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-
-    # =========================
+        return 1 - np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
 
     def recognize(self, frame):
 
-        faces = self.app.get(frame)
+        self.frame_count += 1
 
         results = []
 
-        for face in faces:
+        # update trackers every frame
+        new_trackers = []
+        new_names = []
 
-            embedding = face.embedding
+        for tracker, name in zip(self.trackers, self.tracker_names):
 
-            best_name = "Unknown"
-            best_distance = 1.0
+            success, box = tracker.update(frame)
 
-            for person in self.embeddings_db:
+            if success:
 
-                for db_embedding in self.embeddings_db[person]:
+                x,y,w,h = [int(v) for v in box]
 
-                    dist = self.cosine_distance(
-                        embedding,
-                        db_embedding
-                    )
+                results.append({
+                    "name": name,
+                    "box": (x,y,x+w,y+h)
+                })
 
-                    if dist < best_distance:
+                new_trackers.append(tracker)
+                new_names.append(name)
 
-                        best_distance = dist
-                        best_name = person
+        self.trackers = new_trackers
+        self.tracker_names = new_names
 
-            confidence = (1 - best_distance) * 100
+        # run recognition occasionally
+        if self.frame_count % DETECT_EVERY_N_FRAMES == 0:
 
-            if best_distance > RECOGNITION_THRESHOLD:
+            faces = self.app.get(frame)
+
+            for face in faces:
+
+                embedding = face.embedding
 
                 best_name = "Unknown"
+                best_dist = 1.0
 
-            bbox = face.bbox.astype(int)
+                for person in self.embeddings_db:
 
-            results.append({
+                    for db_emb in self.embeddings_db[person]:
 
-                "name": best_name,
-                "confidence": confidence,
-                "box": bbox
+                        dist = self.cosine_distance(
+                            embedding, db_emb
+                        )
 
-            })
+                        if dist < best_dist:
+
+                            best_dist = dist
+                            best_name = person
+
+                if best_dist > RECOGNITION_THRESHOLD:
+
+                    best_name = "Unknown"
+
+                x1,y1,x2,y2 = face.bbox.astype(int)
+
+                tracker = cv2.TrackerCSRT_create()
+                tracker.init(frame,(x1,y1,x2-x1,y2-y1))
+
+                self.trackers.append(tracker)
+                self.tracker_names.append(best_name)
 
         return results
 
 
-# =========================
-
 def run_camera():
 
-    engine = InsightFaceEngine()
+    engine = FaceEngine()
 
     cap = cv2.VideoCapture(0)
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT,720)
 
     while True:
 
         ret, frame = cap.read()
 
-        if not ret:
-            break
-
-        frame = cv2.flip(frame, 1)
+        frame = cv2.flip(frame,1)
 
         results = engine.recognize(frame)
 
         for face in results:
 
-            x1, y1, x2, y2 = face["box"]
+            x1,y1,x2,y2 = face["box"]
 
             name = face["name"]
 
-            confidence = face["confidence"]
+            color = (0,255,0) if name!="Unknown" else (0,0,255)
 
-            color = (0,255,0) if name != "Unknown" else (0,0,255)
-
-            cv2.rectangle(
-                frame,
-                (x1,y1),
-                (x2,y2),
-                color,
-                2
-            )
+            cv2.rectangle(frame,(x1,y1),(x2,y2),color,2)
 
             cv2.putText(
-                frame,
-                f"{name} ({confidence:.1f}%)",
-                (x1, y1-10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                color,
-                2
+                frame,name,(x1,y1-10),
+                cv2.FONT_HERSHEY_SIMPLEX,0.7,color,2
             )
 
-        cv2.imshow("Attendance System", frame)
+        cv2.imshow("Attendance System",frame)
 
-        if cv2.waitKey(1) == ord("q"):
+        if cv2.waitKey(1)==ord("q"):
             break
 
     cap.release()
     cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
-
+if __name__=="__main__":
     run_camera()
