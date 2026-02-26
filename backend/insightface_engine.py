@@ -4,168 +4,231 @@ import numpy as np
 from insightface.app import FaceAnalysis
 
 DATASET_PATH = "data/registered_faces"
-RECOGNITION_THRESHOLD = 0.45
 
-DETECT_EVERY_N_FRAMES = 5
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 720
+
+RECOGNITION_THRESHOLD = 0.42
+IOU_THRESHOLD = 0.4
+
+DETECTION_INTERVAL = 12
 
 
-class FaceEngine:
+class TrackFace:
+    def __init__(self, tracker, name, embedding, box):
+        self.tracker = tracker
+        self.name = name
+        self.embedding = embedding
+        self.box = box
+
+
+def cosine_distance(a, b):
+    return 1 - np.dot(a, b)
+
+
+def compute_iou(boxA, boxB):
+
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+
+    interArea = max(0, xB - xA) * max(0, yB - yA)
+
+    if interArea == 0:
+        return 0
+
+    boxAArea = (boxA[2]-boxA[0]) * (boxA[3]-boxA[1])
+    boxBArea = (boxB[2]-boxB[0]) * (boxB[3]-boxB[1])
+
+    return interArea / float(boxAArea + boxBArea - interArea)
+
+
+class EnterpriseFaceEngine:
 
     def __init__(self):
 
-        print("Loading InsightFace model...")
+        print("Loading buffalo_l model...")
 
-        self.app = FaceAnalysis(
-            name="buffalo_l",
-            providers=['CPUExecutionProvider']
-        )
+        self.app = FaceAnalysis(name="buffalo_l",
+                                providers=["CPUExecutionProvider"])
 
         self.app.prepare(ctx_id=0, det_size=(640,640))
 
-        self.embeddings_db = {}
+        self.database = {}
         self.load_database()
 
         self.trackers = []
-        self.tracker_names = []
-
         self.frame_count = 0
 
-        print("Engine ready.")
 
     def load_database(self):
 
+        print("Loading database...")
+
         for person in os.listdir(DATASET_PATH):
 
-            person_path = os.path.join(DATASET_PATH, person)
+            path = os.path.join(DATASET_PATH, person)
 
-            if not os.path.isdir(person_path):
+            if not os.path.isdir(path):
                 continue
 
-            self.embeddings_db[person] = []
+            embeddings = []
 
-            for file in os.listdir(person_path):
+            for file in os.listdir(path):
 
                 if file.startswith("."):
                     continue
 
-                img = cv2.imread(os.path.join(person_path,file))
+                img = cv2.imread(os.path.join(path,file))
 
                 faces = self.app.get(img)
 
-                if len(faces):
+                if len(faces)==0:
+                    continue
 
-                    self.embeddings_db[person].append(
-                        faces[0].embedding
-                    )
+                emb = faces[0].embedding
+                emb = emb / np.linalg.norm(emb)
 
-    def cosine_distance(self,a,b):
+                embeddings.append(emb)
 
-        return 1 - np.dot(a,b)/(np.linalg.norm(a)*np.linalg.norm(b))
+            if embeddings:
+                self.database[person] = embeddings
 
-    def recognize(self, frame):
+        print("Loaded:", list(self.database.keys()))
 
-        self.frame_count += 1
 
+    def match(self, embedding):
+
+        best_name = "Unknown"
+        best_dist = 1.0
+
+        for person in self.database:
+
+            for emb in self.database[person]:
+
+                dist = cosine_distance(embedding, emb)
+
+                if dist < best_dist:
+                    best_dist = dist
+                    best_name = person
+
+        if best_dist > RECOGNITION_THRESHOLD:
+            return "Unknown"
+
+        return best_name
+
+
+    def is_duplicate_box(self, new_box):
+
+        for face in self.trackers:
+
+            if compute_iou(face.box, new_box) > IOU_THRESHOLD:
+                return True
+
+        return False
+
+
+    def update_trackers(self, frame):
+
+        active = []
         results = []
 
-        # update trackers every frame
-        new_trackers = []
-        new_names = []
+        for face in self.trackers:
 
-        for tracker, name in zip(self.trackers, self.tracker_names):
+            ok, box = face.tracker.update(frame)
 
-            success, box = tracker.update(frame)
+            if ok:
 
-            if success:
+                x,y,w,h = map(int, box)
 
-                x,y,w,h = [int(v) for v in box]
+                face.box = (x,y,x+w,y+h)
+
+                active.append(face)
 
                 results.append({
-                    "name": name,
-                    "box": (x,y,x+w,y+h)
+                    "name": face.name,
+                    "box": face.box
                 })
 
-                new_trackers.append(tracker)
-                new_names.append(name)
-
-        self.trackers = new_trackers
-        self.tracker_names = new_names
-
-        # run recognition occasionally
-        if self.frame_count % DETECT_EVERY_N_FRAMES == 0:
-
-            faces = self.app.get(frame)
-
-            for face in faces:
-
-                embedding = face.embedding
-
-                best_name = "Unknown"
-                best_dist = 1.0
-
-                for person in self.embeddings_db:
-
-                    for db_emb in self.embeddings_db[person]:
-
-                        dist = self.cosine_distance(
-                            embedding, db_emb
-                        )
-
-                        if dist < best_dist:
-
-                            best_dist = dist
-                            best_name = person
-
-                if best_dist > RECOGNITION_THRESHOLD:
-
-                    best_name = "Unknown"
-
-                x1,y1,x2,y2 = face.bbox.astype(int)
-
-                tracker = cv2.TrackerCSRT_create()
-                tracker.init(frame,(x1,y1,x2-x1,y2-y1))
-
-                self.trackers.append(tracker)
-                self.tracker_names.append(best_name)
+        self.trackers = active
 
         return results
 
 
-def run_camera():
+    def detect_new_faces(self, frame):
 
-    engine = FaceEngine()
+        faces = self.app.get(frame)
+
+        for face in faces:
+
+            emb = face.embedding
+            emb = emb / np.linalg.norm(emb)
+
+            box = tuple(face.bbox.astype(int))
+
+            if self.is_duplicate_box(box):
+                continue
+
+            name = self.match(emb)
+
+            tracker = cv2.TrackerKCF_create()
+            tracker.init(frame,
+                         (box[0],box[1],box[2]-box[0],box[3]-box[1]))
+
+            self.trackers.append(
+                TrackFace(tracker, name, emb, box)
+            )
+
+
+    def process(self, frame):
+
+        self.frame_count += 1
+
+        results = self.update_trackers(frame)
+
+        if self.frame_count % DETECTION_INTERVAL == 0:
+            self.detect_new_faces(frame)
+
+        return results
+
+
+def run():
+
+    engine = EnterpriseFaceEngine()
 
     cap = cv2.VideoCapture(0)
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT,720)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
 
     while True:
 
         ret, frame = cap.read()
 
+        if not ret:
+            break
+
         frame = cv2.flip(frame,1)
 
-        results = engine.recognize(frame)
+        results = engine.process(frame)
 
-        for face in results:
+        for r in results:
 
-            x1,y1,x2,y2 = face["box"]
+            x1,y1,x2,y2 = r["box"]
 
-            name = face["name"]
-
-            color = (0,255,0) if name!="Unknown" else (0,0,255)
+            color = (0,255,0) if r["name"]!="Unknown" else (0,0,255)
 
             cv2.rectangle(frame,(x1,y1),(x2,y2),color,2)
 
-            cv2.putText(
-                frame,name,(x1,y1-10),
-                cv2.FONT_HERSHEY_SIMPLEX,0.7,color,2
-            )
+            cv2.putText(frame,r["name"],
+                        (x1,y1-10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,color,2)
 
-        cv2.imshow("Attendance System",frame)
+        cv2.imshow("Enterprise Attendance System", frame)
 
-        if cv2.waitKey(1)==ord("q"):
+        if cv2.waitKey(1)==ord('q'):
             break
 
     cap.release()
@@ -173,4 +236,4 @@ def run_camera():
 
 
 if __name__=="__main__":
-    run_camera()
+    run()
