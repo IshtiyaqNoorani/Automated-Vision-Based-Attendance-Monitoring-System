@@ -1,32 +1,17 @@
 import cv2
 import os
 import numpy as np
-import insightface
 from insightface.app import FaceAnalysis
-from collections import defaultdict, deque
-import time
-
-# ============================
-# CONFIGURATION
-# ============================
 
 DATASET_PATH = "data/registered_faces"
-
-DETECTION_SIZE = (640, 640)
 RECOGNITION_THRESHOLD = 0.45
 
-FRAME_SKIP = 3
-STABILITY_FRAMES = 5
 
-# ============================
-# ENGINE
-# ============================
-
-class InsightFaceAttendance:
+class InsightFaceEngine:
 
     def __init__(self):
 
-        print("Loading InsightFace model...")
+        print("Initializing InsightFace...")
 
         self.app = FaceAnalysis(
             name="buffalo_l",
@@ -35,25 +20,16 @@ class InsightFaceAttendance:
 
         self.app.prepare(
             ctx_id=0,
-            det_size=DETECTION_SIZE
+            det_size=(640, 640)
         )
 
-        print("Loading face database...")
         self.embeddings_db = {}
+
         self.load_database()
 
-        self.frame_count = 0
+        print("Engine ready.")
 
-        # Stabilization memory
-        self.face_memory = defaultdict(lambda: deque(maxlen=STABILITY_FRAMES))
-
-        self.last_results = []
-
-        print("System ready.")
-
-    # ============================
-    # LOAD DATABASE
-    # ============================
+    # =========================
 
     def load_database(self):
 
@@ -71,9 +47,9 @@ class InsightFaceAttendance:
                 if file.startswith("."):
                     continue
 
-                path = os.path.join(person_path, file)
+                img_path = os.path.join(person_path, file)
 
-                img = cv2.imread(path)
+                img = cv2.imread(img_path)
 
                 if img is None:
                     continue
@@ -89,45 +65,35 @@ class InsightFaceAttendance:
 
         print("Database loaded.")
 
-    # ============================
-    # COSINE DISTANCE
-    # ============================
+    # =========================
 
     def cosine_distance(self, a, b):
 
         return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
-    # ============================
-    # RECOGNITION
-    # ============================
+    # =========================
 
-    def recognize_frame(self, frame):
+    def recognize(self, frame):
 
-        self.frame_count += 1
-
-        # Skip frames for performance
-        if self.frame_count % FRAME_SKIP != 0:
-
-            return self.last_results
-
-        small = cv2.resize(frame, (640, 480))
-
-        faces = self.app.get(small)
+        faces = self.app.get(frame)
 
         results = []
 
         for face in faces:
 
-            emb = face.embedding
+            embedding = face.embedding
 
             best_name = "Unknown"
             best_distance = 1.0
 
             for person in self.embeddings_db:
 
-                for db_emb in self.embeddings_db[person]:
+                for db_embedding in self.embeddings_db[person]:
 
-                    dist = self.cosine_distance(emb, db_emb)
+                    dist = self.cosine_distance(
+                        embedding,
+                        db_embedding
+                    )
 
                     if dist < best_distance:
 
@@ -140,46 +106,29 @@ class InsightFaceAttendance:
 
                 best_name = "Unknown"
 
-            # Stabilization
-            key = tuple(face.bbox.astype(int))
-
-            self.face_memory[key].append(best_name)
-
-            stable_name = max(
-                set(self.face_memory[key]),
-                key=self.face_memory[key].count
-            )
-
             bbox = face.bbox.astype(int)
 
             results.append({
 
-                "name": stable_name,
+                "name": best_name,
                 "confidence": confidence,
-                "bbox": bbox
+                "box": bbox
 
             })
 
-        self.last_results = results
-
         return results
 
-# ============================
-# CAMERA RUNNER
-# ============================
+
+# =========================
 
 def run_camera():
 
-    engine = InsightFaceAttendance()
+    engine = InsightFaceEngine()
 
     cap = cv2.VideoCapture(0)
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    cap.set(cv2.CAP_PROP_FPS, 30)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-    print("Camera started.")
 
     while True:
 
@@ -190,23 +139,29 @@ def run_camera():
 
         frame = cv2.flip(frame, 1)
 
-        results = engine.recognize_frame(frame)
+        results = engine.recognize(frame)
 
         for face in results:
 
-            x1, y1, x2, y2 = face["bbox"]
+            x1, y1, x2, y2 = face["box"]
 
             name = face["name"]
 
-            conf = face["confidence"]
+            confidence = face["confidence"]
 
             color = (0,255,0) if name != "Unknown" else (0,0,255)
 
-            cv2.rectangle(frame, (x1,y1), (x2,y2), color, 2)
+            cv2.rectangle(
+                frame,
+                (x1,y1),
+                (x2,y2),
+                color,
+                2
+            )
 
             cv2.putText(
                 frame,
-                f"{name} ({conf:.1f}%)",
+                f"{name} ({confidence:.1f}%)",
                 (x1, y1-10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
@@ -222,7 +177,7 @@ def run_camera():
     cap.release()
     cv2.destroyAllWindows()
 
-# ============================
 
 if __name__ == "__main__":
+
     run_camera()
