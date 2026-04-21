@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Attendance System</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: #0b0b0c;
+            color: white;
+            font-family: -apple-system, sans-serif;
+            text-align: center;
+        }
+
+        h1 { margin: 20px; }
+
+        .controls button {
+            margin: 10px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .start { background: #30d158; }
+        .end { background: #ff375f; }
+        .download { background: #0a84ff; }
+
+        .container {
+            position: relative;
+            display: inline-block;
+        }
+
+        video, canvas {
+            border-radius: 12px;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        #analytics {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>Live Attendance</h1>
+
+<div class="controls">
+    <button class="start" onclick="startSession()">Start</button>
+    <button class="end" onclick="endSession()">End</button>
+    <button class="download" onclick="downloadCSV()">Download CSV</button>
+    <button onclick="loadAnalytics()">Analytics</button>
+</div>
+
+<div class="container">
+    <video id="video" width="800" height="600" autoplay></video>
+    <canvas id="overlay" width="800" height="600"></canvas>
+</div>
+
+<div id="status">Idle</div>
+<div id="analytics"></div>
+
+<script>
+let sessionActive = false;
+
+const video = document.getElementById("video");
+const canvas = document.getElementById("overlay");
+const ctx = canvas.getContext("2d");
+const statusText = document.getElementById("status");
+
+// Webcam
+navigator.mediaDevices.getUserMedia({ video: true })
+.then(stream => video.srcObject = stream)
+.catch(() => statusText.innerText = "Camera denied");
+
+// Start
+function startSession() {
+    fetch("/start", { method: "POST" })
+    .then(() => {
+        sessionActive = true;
+        statusText.innerText = "Session running";
+    });
+}
+
+// End
+function endSession() {
+    fetch("/end", { method: "POST" })
+    .then(res => res.json())
+    .then(data => {
+        sessionActive = false;
+        statusText.innerText = `Saved ${data.count} students`;
+    });
+}
+
+// Download
+function downloadCSV() {
+    window.location.href = "/download";
+}
+
+// Analytics
+function loadAnalytics() {
+    fetch("/analytics")
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById("analytics").innerHTML = `
+            <h3>Analytics</h3>
+            <p>Total: ${data.total}</p>
+            <p>Present: ${data.present}</p>
+            <p>Absent: ${data.absent}</p>
+            <p>Rate: ${data.rate}%</p>
+        `;
+    });
+}
+
+// Send frames
+setInterval(() => {
+    if (video.readyState !== 4) return;
+
+    const temp = document.createElement("canvas");
+    const tctx = temp.getContext("2d");
+
+    temp.width = video.videoWidth;
+    temp.height = video.videoHeight;
+
+    tctx.drawImage(video, 0, 0);
+
+    temp.toBlob(blob => {
+        const form = new FormData();
+        form.append("frame", blob);
+
+        fetch("/process", {
+            method: "POST",
+            body: form
+        })
+        .then(res => res.json())
+        .then(drawBoxes);
+    }, "image/jpeg");
+
+}, 1000);
+
+
+// Draw boxes
+function drawBoxes(results) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    results.forEach(r => {
+        const [x1, y1, x2, y2] = r.box;
+
+        ctx.strokeStyle = r.name !== "Unknown" ? "#30d158" : "#ff375f";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.fillText(r.name, x1, y1 - 5);
+    });
+}
+</script>
+
+</body>
+</html>
