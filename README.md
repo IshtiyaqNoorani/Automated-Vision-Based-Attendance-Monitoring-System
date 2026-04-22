@@ -1,85 +1,95 @@
-# Automated-Vision-Based-Attendance-Monitoring-System
-Problem Statement -> Manual attendance marking in classrooms is time-consuming, inefficient, and prone to errors or proxy attendance. With the growing class sizes and need for accurate monitoring, an automated solution is required.
-This project aims to develop a camera-based attendance system using computer vision and deep learning that can automatically detect and recognize students’ faces in real time without any manual intervention. The system will capture video from a camera, identify registered students using facial recognition models, and record attendance with timestamps in a digital format.
-By leveraging Python, OpenCV, and pre-trained deep learning models such as FaceNet or VGG-Face, the proposed system ensures improved accuracy, reduced human effort, and reliable attendance tracking. The project demonstrates the practical application of Artificial Intelligence and Machine Learning in automating routine academic processes.
+# Automated Vision-Based Attendance Monitoring System
 
-Goal
-Build a simple, efficient attendance system that works on mobile phones and stores attendance digitally.
+## Overview
+This project is an automated attendance system that uses facial recognition to identify and record student attendance in real time. It replaces traditional manual methods with a more efficient and accurate system.
 
-Recommended approach
-Use QR code based attendance as the main system. Face recognition can be added later as an optional improvement.
+The project consists of:
+- A **desktop application** (PyQt + OpenCV)
+- A **web interface** (Flask) for analytics and attendance viewing
 
-System flow
-	1.	Teacher generates a QR code for the class.
-	2.	Students scan the QR code using the mobile app.
-	3.	The app sends attendance data to the server.
-	4.	Server stores attendance in the database.
+---
 
-Tools to use
-	1.	Mobile app development
-Use Flutter so one app works on Android and iOS.
+## Team Members
+- Hryday Jain  
+- Ishtiyaq Noorani  
+- Dhruv Prabhu  
 
-Useful Flutter packages
-qr_flutter for generating QR codes
-mobile_scanner for scanning QR codes
-http for backend communication
-	2.	Backend development
-Use Django with Django REST Framework.
+---
 
-Backend tools
-Django
-Django REST Framework
-django cors headers
-	3.	Database
-Use SQLite for simplicity and easy setup.
-Can upgrade to PostgreSQL later if needed.
+## Features
+- Real-time face detection and recognition  
+- Student registration using facial data  
+- Duplicate face detection  
+- Attendance session tracking  
+- CSV-based attendance storage  
+- Web-based dashboard  
+- Attendance analytics (present, absent, rate)  
+- Downloadable attendance reports  
 
-QR code logic
-Teacher generates a QR containing class id, date, time, and a random token.
-Student scans and sends student id and token to backend.
-Backend verifies token and marks attendance.
-QR expires after about 30 to 60 seconds to prevent misuse.
+---
 
-Optional future feature
-Face recognition using OpenCV and Python can be added later. Capture student face at registration and compare during attendance.
+## Technologies Used
+- Python  
+- OpenCV  
+- InsightFace  
+- ONNX Runtime  
+- PyQt5  
+- Flask  
+- NumPy  
 
-Final technology stack
-Mobile app Flutter
-Backend Django and Django REST Framework
-Database SQLite
-QR generation qr_flutter
-QR scanning mobile_scanner
-Optional face recognition OpenCV
 
-Security basics
-QR code expires quickly.
-Each student can mark attendance only once per class.
-Students and teachers log in before using the system.
+---
 
-Minimum features to build
-Teacher
-Login
-Generate QR code
-View attendance
+## Setup Instructions
 
-Student
-Login
-Scan QR code
-See attendance confirmation
+### 1. Clone the Repository
 
-Admin
-View all attendance records
-Export attendance data
+---
 
-Development roadmap
-Week 1
-Setup Django backend and database models.
+### 2. Create Virtual Environment
 
-Week 2
-Build Flutter login and QR scanning. Connect backend.
+#### Windows
 
-Week 3
-Add QR expiration and admin dashboard. Testing.
 
-Week 4 optional
-Add face recognition prototype.
+#### macOS / Linux
+
+---
+
+### 3. Install Dependencies
+
+---
+
+## Running the Project
+
+This will provide:
+- Attendance analytics  
+- CSV download  
+- Dashboard view  
+
+---
+
+## Notes
+- Face recognition runs locally due to high computational requirements  
+- Web application is used for visualization and reporting  
+- Ensure camera permissions are enabled  
+
+---
+
+## Known Limitations
+- Requires sufficient lighting for accurate detection  
+- Performance depends on hardware  
+- Cloud deployment of full model is limited by memory constraints  
+
+---
+
+## Future Improvements
+- Database integration instead of CSV  
+- Mobile application support  
+- Improved model accuracy  
+- Cloud-based scalable deployment  
+
+---
+
+## License
+This project is developed for academic purposes.
+---
